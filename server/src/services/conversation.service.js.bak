@@ -101,17 +101,13 @@ export async function listForUser(userId) {
   // One extra round trip for all members, rather than N+1 per conversation.
   const members = await prisma.conversationMember.findMany({
     where: { conversationId: { in: rows.map((r) => r.id) } },
-    // `role` included so this endpoint returns the same member shape as
-    // create/get — the client should never have to know which query produced a
-    // conversation.
-    select: { conversationId: true, role: true, user: memberSelect },
-    orderBy: { joinedAt: 'asc' },
+    select: { conversationId: true, user: memberSelect },
   });
 
   const byConversation = new Map();
   for (const m of members) {
     if (!byConversation.has(m.conversationId)) byConversation.set(m.conversationId, []);
-    byConversation.get(m.conversationId).push({ ...m.user, role: m.role });
+    byConversation.get(m.conversationId).push(m.user);
   }
 
   return rows.map((r) => ({

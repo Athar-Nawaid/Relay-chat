@@ -90,10 +90,6 @@ export function createIo(
         serverTime: new Date().toISOString(),
       });
 
-      // State follows `hello`, never precedes it: a client that sets up its
-      // listeners on connect would otherwise miss whatever was emitted first.
-      await sendPresenceSnapshot(socket, conversationIds);
-
       // Deliver anything missed while offline. Last, so the client has already
       // seen `hello` and is ready to render.
       await drainAll(socket);

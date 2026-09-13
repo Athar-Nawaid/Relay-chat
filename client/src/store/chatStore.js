@@ -64,6 +64,16 @@ export const useChatStore = create((set, get) => ({
   setPresence: (userId, online) =>
     set((s) => ({ presence: { ...s.presence, [userId]: online } })),
 
+  /**
+   * Replaces the whole presence map from a server snapshot.
+   *
+   * Authoritative rather than merged: anyone absent from the list is offline.
+   * Merging would let a stale "online" from a previous connection survive a
+   * reconnect forever.
+   */
+  setPresenceSnapshot: (onlineIds) =>
+    set(() => ({ presence: Object.fromEntries(onlineIds.map((id) => [id, true])) })),
+
   setTyping: (conversationId, userId, isTyping) =>
     set((s) => {
       const current = new Set(s.typing[conversationId] ?? []);

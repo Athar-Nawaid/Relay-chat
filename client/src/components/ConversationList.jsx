@@ -2,13 +2,9 @@ import { useChatStore } from '../store/chatStore.js';
 import { useAuthStore } from '../store/authStore.js';
 import { markRead } from '../realtime/socket.js';
 import { formatRelative } from '../lib/time.js';
+import { isOnline, otherMembers, titleOf } from '../lib/conversation.js';
 
-/** DMs have no stored title — they are named after the other person. */
-export function titleOf(conversation, meId) {
-  if (conversation.type === 'group') return conversation.title ?? 'Group';
-  const other = conversation.members?.find((m) => m.id !== meId);
-  return other?.displayName ?? other?.username ?? 'Direct message';
-}
+export { titleOf };
 
 export default function ConversationList({ onNewChat, onOpen }) {
   const conversations = useChatStore((s) => s.conversations);
@@ -44,8 +40,8 @@ export default function ConversationList({ onNewChat, onOpen }) {
 
         {conversations.map((conversation) => {
           const name = titleOf(conversation, meId);
-          const others = (conversation.members ?? []).filter((m) => m.id !== meId);
-          const online = others.some((m) => presence[m.id]);
+          const others = otherMembers(conversation, meId);
+          const online = isOnline(conversation, presence, meId);
           const someoneTyping = (typing[conversation.id] ?? []).some((id) => id !== meId);
 
           return (

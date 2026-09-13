@@ -108,6 +108,10 @@ export function connectSocket() {
     store().upsertConversation({ ...conversation, unread: 0 });
   });
 
+  // Who is online right now, sent once on connect. Transition events alone would
+  // never tell us about people who were already online before we arrived.
+  socket.on('presence:snapshot', ({ online }) => store().setPresenceSnapshot(online ?? []));
+
   socket.on('presence:update', ({ userId, online }) => store().setPresence(userId, online));
 
   socket.on('typing', ({ conversationId, userId, typing }) => {

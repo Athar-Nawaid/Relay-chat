@@ -268,25 +268,6 @@ describe('7. horizontal scaling across instances', () => {
     onBeta.close();
   });
 
-  it('tells a connecting client who is ALREADY online', async () => {
-    // The bug this covers: presence was transition-only, so whoever connected
-    // second never learned about whoever was already there — and a page refresh
-    // lost the lot. Transitions alone are not enough; arrival needs a snapshot.
-    const first = await connectClient(alpha.url, alice.token);
-
-    // bob connects second, on the other instance, and must be told about alice
-    // even though her transition happened before he was listening.
-    const second = await connectClient(beta.url, bob.token);
-    const snapshot = await waitFor(second, 'presence:snapshot');
-
-    expect(snapshot.online).toContain(alice.id);
-    // Never includes yourself.
-    expect(snapshot.online).not.toContain(bob.id);
-
-    first.close();
-    second.close();
-  });
-
   it('propagates presence across instances', async () => {
     // A user who has never connected, so "became online" is unambiguous — an
     // earlier test's socket still closing would otherwise suppress the

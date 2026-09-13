@@ -1141,3 +1141,63 @@ input:focus {
     display: none;
   }
 }
+
+/* ------------------------- conversation details ------------------------- */
+
+/* The title block doubles as the button that opens the member list. */
+.thread-identity {
+  background: none;
+  border: none;
+  padding: 0.2rem 0.35rem;
+  margin: -0.2rem -0.35rem;
+  border-radius: var(--r-sm);
+  color: inherit;
+  text-align: left;
+  font-weight: 400;
+  display: block;
+}
+
+.thread-identity:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.modal-sub {
+  margin: 0.1rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-3);
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--r-sm);
+}
+
+.member-row:hover {
+  background: var(--surface-2);
+}
+
+.tag {
+  margin-left: 0.4rem;
+  padding: 0.02rem 0.35rem;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
+.tag.owner {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.hint {
+  font-size: 0.74rem;
+  color: var(--text-3);
+}

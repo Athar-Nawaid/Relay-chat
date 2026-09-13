@@ -1,7 +1,6 @@
 import { EVENTS, room } from '../events.js';
-import { addConnection, onlineStatus, removeConnection } from '../../services/presence.service.js';
+import { addConnection, removeConnection } from '../../services/presence.service.js';
 import { membershipsFor } from '../../services/sync.service.js';
-import { prisma } from '../../config/postgres.js';
 import { logger } from '../../lib/logger.js';
 
 /**
@@ -17,35 +16,6 @@ async function broadcastPresence(io, userId, online, conversationIds) {
     userId,
     online,
     at: new Date().toISOString(),
-  });
-}
-
-/**
- * Sends the connecting client the CURRENT status of everyone it shares a
- * conversation with.
- *
- * Transition events alone are not enough: they only tell you about people whose
- * status changes while you are already watching. Someone who was online before
- * you connected would never be announced, and a page refresh would lose the lot.
- * The snapshot is what makes presence correct on arrival rather than eventually.
- */
-export async function sendPresenceSnapshot(socket, conversationIds) {
-  if (conversationIds.length === 0) return;
-
-  const members = await prisma.conversationMember.findMany({
-    where: { conversationId: { in: conversationIds } },
-    select: { userId: true },
-    distinct: ['userId'],
-  });
-
-  const userIds = members.map((m) => m.userId).filter((id) => id !== socket.data.userId);
-  if (userIds.length === 0) return;
-
-  // One pipelined Redis round trip for everyone, rather than one call per member.
-  const status = await onlineStatus(userIds);
-
-  socket.emit(EVENTS.PRESENCE_SNAPSHOT, {
-    online: [...status.entries()].filter(([, isOnline]) => isOnline).map(([id]) => id),
   });
 }
 

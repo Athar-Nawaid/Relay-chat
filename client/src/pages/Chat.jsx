@@ -5,14 +5,17 @@ import { useChatStore } from '../store/chatStore.js';
 import { useAuthStore } from '../store/authStore.js';
 import { isMuted, setMuted } from '../lib/sound.js';
 import { applyTheme, getTheme, nextTheme, themeIcon, themeLabel } from '../lib/theme.js';
-import ConversationList, { titleOf } from '../components/ConversationList.jsx';
+import ConversationList from '../components/ConversationList.jsx';
+import { isOnline, titleOf } from '../lib/conversation.js';
 import MessageList from '../components/MessageList.jsx';
 import Composer from '../components/Composer.jsx';
 import ConnectionBanner from '../components/ConnectionBanner.jsx';
 import NewChatDialog from '../components/NewChatDialog.jsx';
+import ConversationDetails from '../components/ConversationDetails.jsx';
 
 export default function Chat() {
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   // Narrow screens show one pane at a time; ignored at desktop widths.
   const [view, setView] = useState('list');
   const [muted, setMutedState] = useState(isMuted());
@@ -40,8 +43,7 @@ export default function Chat() {
 
   const active = conversations.find((c) => c.id === activeId);
   const typingUsers = (typing[activeId] ?? []).filter((id) => id !== me?.id);
-  const others = (active?.members ?? []).filter((m) => m.id !== me?.id);
-  const online = others.some((m) => presence[m.id]);
+  const online = isOnline(active, presence, me?.id);
 
   function toggleMute() {
     const next = !muted;
@@ -128,10 +130,20 @@ export default function Chat() {
                 >
                   ‹
                 </button>
-                <div>
+                <button
+                  type="button"
+                  className="thread-identity"
+                  onClick={() => setShowDetails(true)}
+                  title="View members"
+                >
                   <h2>{titleOf(active, me?.id)}</h2>
-                  <div className="sub">{subtitle()}</div>
-                </div>
+                  <div className="sub">
+                    {active.type === 'dm' && (
+                      <span className={`dot ${online ? 'on' : 'off'}`} aria-hidden="true" />
+                    )}
+                    {subtitle()}
+                  </div>
+                </button>
               </div>
 
               <MessageList conversationId={active.id} members={active.members} />
@@ -153,6 +165,10 @@ export default function Chat() {
           onClose={() => setShowNewChat(false)}
           onCreated={() => setView('thread')}
         />
+      )}
+
+      {showDetails && active && (
+        <ConversationDetails conversation={active} onClose={() => setShowDetails(false)} />
       )}
     </div>
   );

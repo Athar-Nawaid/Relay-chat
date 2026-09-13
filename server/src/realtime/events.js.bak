@@ -6,7 +6,6 @@ export const EVENTS = {
   CONVERSATION_NEW: 'conversation:new',
   MESSAGE_BACKLOG: 'message:backlog',
   PRESENCE_UPDATE: 'presence:update',
-  PRESENCE_SNAPSHOT: 'presence:snapshot',
   TYPING: 'typing',
   AUTH_EXPIRED: 'auth:expired',
 
