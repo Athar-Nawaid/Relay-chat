@@ -64,9 +64,10 @@ services:
     buildCommand: npm install && npx prisma generate --schema server/prisma/schema.prisma && npx prisma migrate deploy --schema server/prisma/schema.prisma && npm run build --workspace client
     startCommand: npm run start
 
-    envVarGroups:
-      - relay-shared
     envVars:
+      # Pulls in every key from the shared group above. A group is referenced
+      # from inside envVars with `fromGroup`, not as a sibling field.
+      - fromGroup: relay-shared
       # Shown in the client's connection banner — what makes running on two
       # instances visible rather than merely claimed.
       - key: INSTANCE_ID
@@ -86,8 +87,7 @@ services:
     buildCommand: npm install && npx prisma generate --schema server/prisma/schema.prisma && npm run build --workspace client
     startCommand: npm run start
 
-    envVarGroups:
-      - relay-shared
     envVars:
+      - fromGroup: relay-shared
       - key: INSTANCE_ID
         value: app-2
