@@ -1,0 +1,128 @@
+// Postgres holds the relational, transactional half of the system:
+// identity, membership, and read state. The append-only message log lives in
+// MongoDB (see src/models/message.model.js). The only seam between the two
+// stores is `Conversation.nextSeq` — a per-conversation sequence allocator whose
+// value is stamped onto every Mongo message document as `seq`.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pooled endpoint for application queries.
+  url      = env("DATABASE_URL")
+  // Unpooled endpoint for migrations, which take advisory locks and run DDL —
+  // neither survives a transaction-mode pooler.
+  directUrl  = env("DIRECT_URL")
+  extensions = [citext]
+}
+
+enum ConversationType {
+  dm
+  group
+}
+
+enum MemberRole {
+  owner
+  member
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  username     String    @unique @db.Citext // case-insensitive login
+  displayName  String    @map("display_name")
+  passwordHash String    @map("password_hash")
+  avatarColor  String    @default("#6366f1") @map("avatar_color")
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships          ConversationMember[]
+  refreshTokens        RefreshToken[]
+  createdConversations Conversation[]       @relation("ConversationCreator")
+
+  @@map("users")
+}
+
+model Conversation {
+  id    String           @id @default(uuid()) @db.Uuid
+  type  ConversationType
+  title String? // null for DMs — the client renders the other member's name
+
+  /// Sorted "uuidA:uuidB" for DMs, null for groups. The UNIQUE constraint is what
+  /// makes DM creation idempotent: clicking "message Alice" twice returns the same
+  /// row, enforced by the database rather than a read-then-write race in app code.
+  dmKey String? @unique @map("dm_key")
+
+  /// Per-conversation sequence allocator. Bumped with
+  /// `UPDATE ... SET next_seq = next_seq + 1 ... RETURNING next_seq - 1`
+  /// so the row lock serialises concurrent sends and guarantees monotonic ordering.
+  /// Int (not BigInt) deliberately: int4 caps at ~2.1B messages per conversation,
+  /// which is ample, and it avoids BigInt's JSON-serialisation footgun on every
+  /// socket payload.
+  nextSeq Int @default(1) @map("next_seq")
+
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz(6)
+
+  /// Nullable with ON DELETE SET NULL, deliberately. With a RESTRICT default, a
+  /// user who ever created a conversation could never be deleted at all — and
+  /// cascading instead would destroy a group the moment its creator left, taking
+  /// everyone else's history with it. Authorship is metadata; membership is what
+  /// actually governs access.
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy User?                @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members   ConversationMember[]
+
+  @@index([lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+/// Delivery and read state are high-water marks on the membership row, NOT one
+/// receipt row per recipient per message. A message with seq = S is delivered to
+/// user U iff U.lastDeliveredSeq >= S. That is O(1) writes per message regardless
+/// of group size, and it makes the unread count a single join with zero message
+/// scanning.
+model ConversationMember {
+  conversationId String     @map("conversation_id") @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
+  role           MemberRole @default(member)
+
+  /// The offline-queue cursor. Everything with seq > this is undelivered.
+  lastDeliveredSeq Int @default(0) @map("last_delivered_seq")
+
+  /// Powers unread counts: (conversation.nextSeq - 1 - lastReadSeq).
+  lastReadSeq Int @default(0) @map("last_read_seq")
+
+  muted    Boolean  @default(false)
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(6)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+/// Refresh tokens are opaque random bytes, never JWTs, and only the sha256 of the
+/// token is stored. `familyId` groups a rotation chain: presenting an
+/// already-revoked token revokes the entire family, which contains a stolen token.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  familyId  String    @map("family_id") @db.Uuid
+  userAgent String?   @map("user_agent")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}

@@ -1,17 +1,44 @@
 {
-  "name": "chatter-app",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "type":"module",
+  "name": "relay-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Horizontally-scalable realtime chat: Socket.IO + Redis adapter, at-least-once delivery, Postgres + MongoDB",
   "author": "Athar Nawaid",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^4.21.2",
-    "mongoose": "^8.9.5",
-    "socket.io": "^4.8.1"
+  "license": "MIT",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspace client",
+    "start": "npm run start --workspace server",
+    "test": "npm run test --workspace server",
+    "migrate": "npm run migrate --workspace server",
+    "migrate:deploy": "npm run migrate:deploy --workspace server",
+    "seed": "npm run seed --workspace server",
+    "studio": "npm run studio --workspace server",
+    "loadtest": "node loadtest/socket-load.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "prisma@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.25.12": true
   }
 }

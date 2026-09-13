@@ -1,0 +1,114 @@
+import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { pub, sub } from '../config/redis.js';
+import { instanceId } from '../lib/instanceId.js';
+import { logger } from '../lib/logger.js';
+import { EVENTS, room } from './events.js';
+import { authSocket, startTokenExpirySweep } from './authSocket.js';
+import { registerMessageHandlers } from './handlers/message.js';
+import { drainAll, registerSyncHandlers } from './handlers/sync.js';
+import { registerTypingHandlers } from './handlers/typing.js';
+import { onConnect, onDisconnect } from './handlers/presence.js';
+import { membershipsFor } from '../services/sync.service.js';
+import {
+  releaseInstanceLeases,
+  startPresenceHeartbeat,
+} from '../services/presence.service.js';
+
+/**
+ * @param httpServer  the HTTP server to attach to
+ * @param clients     optional {pubClient, subClient, id}. Defaults to the shared
+ *                    pair and the process-wide instance id. Tests override them
+ *                    to run two genuinely independent instances in one process,
+ *                    which in production would each be their own process.
+ */
+export function createIo(
+  httpServer,
+  { pubClient = pub, subClient = sub, id = instanceId } = {},
+) {
+  const io = new Server(httpServer, {
+    /**
+     * WebSocket only, no HTTP long-polling fallback.
+     *
+     * engine.io's polling handshake spans several HTTP requests that must all
+     * reach the SAME instance, which behind a load balancer means sticky
+     * sessions. Skipping polling removes that requirement entirely.
+     *
+     * The trade: no fallback for restrictive corporate proxies that block
+     * WebSockets, and a harsher first-connect failure mode when one does.
+     */
+    transports: ['websocket'],
+    pingInterval: 25_000,
+    pingTimeout: 20_000,
+    maxHttpBufferSize: 1e5,
+  });
+
+  /**
+   * The Redis adapter is what makes horizontal scaling work: io.to(room).emit()
+   * publishes to a Redis channel that every instance subscribes to, so a message
+   * reaches members connected to any server, not just this one.
+   *
+   * `sub` is a duplicate() of `pub` and is therefore in subscriber mode, where it
+   * cannot run ordinary commands — which is exactly why presence and rate limiting
+   * use a third `cmd` client rather than borrowing this one.
+   */
+  io.adapter(createAdapter(pubClient, subClient));
+  io.instanceId = id;
+
+  io.use(authSocket);
+
+  io.on('connection', async (socket) => {
+    const userId = socket.data.userId;
+    socket.data.instanceId = id;
+
+    try {
+      const memberships = await membershipsFor(userId);
+      const conversationIds = memberships.map((m) => m.conversationId);
+
+      // Join the user's own room (for targeted notifications) and one room per
+      // conversation (for fan-out).
+      socket.join(room.user(userId));
+      for (const id of conversationIds) socket.join(room.conversation(id));
+
+      registerMessageHandlers(io, socket);
+      registerSyncHandlers(io, socket);
+      registerTypingHandlers(io, socket);
+
+      socket.on('disconnect', (reason) => {
+        logger.debug({ userId, reason }, 'socket disconnected');
+        void onDisconnect(io, socket);
+      });
+
+      await onConnect(io, socket, conversationIds);
+
+      // instanceId is what makes multi-instance operation visible: the client
+      // renders it, so two windows showing two different ids exchanging messages
+      // is self-evidently a distributed system rather than a claim.
+      socket.emit(EVENTS.HELLO, {
+        userId,
+        instanceId: id,
+        serverTime: new Date().toISOString(),
+      });
+
+      // Deliver anything missed while offline. Last, so the client has already
+      // seen `hello` and is ready to render.
+      await drainAll(socket);
+    } catch (err) {
+      logger.error({ err, userId }, 'connection setup failed');
+      socket.disconnect(true);
+    }
+  });
+
+  const stopSweep = startTokenExpirySweep(io);
+  const stopHeartbeat = startPresenceHeartbeat(io);
+
+  io.shutdown = async () => {
+    stopSweep();
+    stopHeartbeat();
+    await releaseInstanceLeases(io);
+    await io.close();
+  };
+
+  logger.info({ instanceId: id }, 'socket.io ready with redis adapter');
+  return io;
+}

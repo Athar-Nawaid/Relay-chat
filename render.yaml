@@ -1,0 +1,112 @@
+# Render Blueprint.
+#
+# Two web services from one repo. They are separate processes that share state
+# through Redis, so this is a genuine multi-instance deployment — which is the
+# whole point of the project — rather than a demo of one.
+#
+# The databases stay on Neon / Atlas / Redis Cloud. Render's own free Postgres
+# expires, whereas those three are permanently free, and keeping them means one
+# fewer thing to migrate later.
+#
+# Secrets are marked `sync: false`, meaning Render prompts for them once in the
+# dashboard and never stores them in this file.
+
+services:
+  - type: web
+    name: relay-app-1
+    runtime: node
+    plan: free
+    # Keep this in the same region as all three databases.
+    #
+    # A send makes three sequential round trips — Redis, Postgres, Mongo. Split
+    # across regions that is ~125ms of pure network per message; co-located it is
+    # closer to 5ms. Render has no Mumbai region, so Singapore is the point to
+    # consolidate on.
+    region: singapore
+    branch: main
+    healthCheckPath: /healthz
+
+    buildCommand: >-
+      npm install &&
+      npx prisma generate --schema server/prisma/schema.prisma &&
+      npx prisma migrate deploy --schema server/prisma/schema.prisma &&
+      npm run build --workspace client
+
+    startCommand: npm run start
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Shown in the client's connection banner. This is what makes running on
+      # two instances visible rather than merely claimed.
+      - key: INSTANCE_ID
+        value: app-1
+      - key: LOG_LEVEL
+        value: info
+      - key: BCRYPT_ROUNDS
+        # Render's free CPU is slow; 12 can push login past a second.
+        value: '10'
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: MONGO_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+
+  - type: web
+    name: relay-app-2
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    healthCheckPath: /healthz
+
+    # No migrate here: app-1 already applied the schema, and running it twice
+    # concurrently on a first deploy can deadlock on the migration advisory lock.
+    buildCommand: >-
+      npm install &&
+      npx prisma generate --schema server/prisma/schema.prisma &&
+      npm run build --workspace client
+
+    startCommand: npm run start
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: INSTANCE_ID
+        value: app-2
+      - key: LOG_LEVEL
+        value: info
+      - key: BCRYPT_ROUNDS
+        value: '10'
+      # fromService keeps the two in step: set each secret once on app-1 and
+      # app-2 inherits it, rather than typing five values twice.
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: relay-app-1
+          envVarKey: DATABASE_URL
+      - key: DIRECT_URL
+        fromService:
+          type: web
+          name: relay-app-1
+          envVarKey: DIRECT_URL
+      - key: MONGO_URL
+        fromService:
+          type: web
+          name: relay-app-1
+          envVarKey: MONGO_URL
+      - key: REDIS_URL
+        fromService:
+          type: web
+          name: relay-app-1
+          envVarKey: REDIS_URL
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: relay-app-1
+          envVarKey: JWT_SECRET

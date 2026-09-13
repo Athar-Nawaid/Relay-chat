@@ -1,1 +1,28 @@
-/node_modules/
+# dependencies
+node_modules/
+
+# env — never commit secrets
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+build/
+client/dist/
+
+# test / tooling
+coverage/
+.vitest/
+*.log
+npm-debug.log*
+
+# generated
+server/prisma/generated/
+
+# documents — the resume PDF was previously committed here by accident
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($root=\"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; Get-ChildItem -Force $root | Select-Object Mode,Length,Name | Format-Table -AutoSize; Write-Output \"---- Src ----\"; Get-ChildItem -Force \"$root\\\\Src\" | Select-Object Length,Name | Format-Table -AutoSize; Write-Output \"---- docs ----\"; Get-ChildItem -Force \"$root\\\\docs\" | Select-Object Length,Name | Format-Table -AutoSize)",
+      "PowerShell(npm install -g npm@latest 2>&1 | Select-Object -Last 5; Write-Output \\(\"npm now: \" + \\(npm --version\\)\\))",
+      "PowerShell(npm install --prefix \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\" 2>&1)",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; npx eslint . 2>&1 | Select-Object -Last 30; Write-Output \"exit=$LASTEXITCODE\")",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; Write-Output \"=== lint ===\"; npx eslint . 2>&1 | Select-Object -Last 10; Write-Output \"=== boot with no .env \\(expect readable config failure\\) ===\"; node server/src/index.js 2>&1 | Select-Object -First 15; Write-Output \"exit=$LASTEXITCODE\")",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; npm audit --json 2>$null | ConvertFrom-Json | ForEach-Object { $_.vulnerabilities.PSObject.Properties | Where-Object { $_.Value.severity -in @\\('critical','high'\\) } | ForEach-Object { \"{0,-28} {1,-9} via: {2}\" -f $_.Value.name, $_.Value.severity, \\($_.Value.via | ForEach-Object { if \\($_ -is [string]\\) { $_ } else { $_.title } }\\) -join ', ' } })",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; npm install --save-dev --workspace server vitest@latest 2>&1 | Select-Object -Last 6; Write-Output \"=== remaining high/critical ===\"; npm audit --json 2>$null | ConvertFrom-Json | ForEach-Object { $_.vulnerabilities.PSObject.Properties | Where-Object { $_.Value.severity -in @\\('critical','high'\\) } | ForEach-Object { \"{0,-28} {1}\" -f $_.Value.name, $_.Value.severity } })",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; npm uninstall --workspace server bcrypt 2>&1 | Select-Object -Last 3; npm install --workspace server \"@node-rs/bcrypt@latest\" 2>&1 | Select-Object -Last 6; Write-Output \"=== remaining high/critical ===\"; npm audit --json 2>$null | ConvertFrom-Json | ForEach-Object { $_.vulnerabilities.PSObject.Properties | Where-Object { $_.Value.severity -in @\\('critical','high'\\) } | ForEach-Object { \"{0,-28} {1}\" -f $_.Value.name, $_.Value.severity } })",
+      "PowerShell(cd \"D:\\\\Athar\\\\Chit-Chat-Instant-Messaging-Application\"; Write-Output \"=== status \\(short\\) ===\"; git status --short; Write-Output \"=== counts ===\"; \"tracked files: \" + \\(git ls-files | Measure-Object\\).Count; \"repo size: \"; git count-objects -vH | Select-String \"size-pack|count\")"
+    ]
+  }
+}
