@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
@@ -9,7 +10,7 @@ import { authRouter } from './http/routes/auth.js';
 import { conversationRouter } from './http/routes/conversations.js';
 import { userRouter } from './http/routes/users.js';
 import { errorHandler, notFoundHandler } from './http/middleware/errorHandler.js';
-import { isProd } from './config/env.js';
+import { logger } from './lib/logger.js';
 
 export function createApp() {
   const app = express();
@@ -41,23 +42,37 @@ export function createApp() {
   app.use('/api/conversations', conversationRouter);
   app.use('/api/users', userRouter);
 
-  // In production this server also serves the built React client, which makes the
-  // app same-origin end to end — so there is no CORS config anywhere, and the
-  // refresh cookie is first-party. In dev the Vite proxy achieves the same thing.
-  if (isProd) {
-    // fileURLToPath, not .pathname: on Windows the latter yields "/D:/..." with
-    // a leading slash, which express.static cannot resolve.
-    const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
+  // Serve the built client when a build exists — deliberately NOT gated on
+  // NODE_ENV.
+  //
+  // It was, and that cost a deployment: Render did not have NODE_ENV set, so the
+  // app ran in development mode, never mounted this, and answered "/" with a
+  // JSON 404 from the not-found handler. A missing environment variable should
+  // not silently change what the server serves. The presence of a build is the
+  // honest signal, and it is what actually determines whether we CAN serve it.
+  //
+  // fileURLToPath, not .pathname: on Windows the latter yields "/D:/..." with a
+  // leading slash, which express.static cannot resolve.
+  const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
+  const indexHtml = path.join(clientDist, 'index.html');
 
+  if (existsSync(indexHtml)) {
     app.use(express.static(clientDist));
 
     // SPA fallback: anything not claimed above gets index.html so client-side
-    // routes survive a refresh. API and socket paths are already handled, and
-    // reaching here for one of them means it genuinely does not exist.
+    // routes survive a refresh. API and socket paths fall through to the
+    // not-found handler, because reaching here means they genuinely do not exist.
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
-      return res.sendFile(path.join(clientDist, 'index.html'));
+      return res.sendFile(indexHtml);
     });
+
+    logger.info({ clientDist }, 'serving client build');
+  } else {
+    logger.warn(
+      { clientDist },
+      'no client build found — API only. Run `npm run build` to serve the UI.',
+    );
   }
 
   app.use(notFoundHandler);

@@ -1,125 +1,127 @@
 # Deploying to Render (free)
 
-Two web services from one repo, sharing state through Redis — so the multi-instance behaviour the project is built around is actually deployed, not just claimed.
+Two web services from one repo, sharing state through Redis, each serving the React UI at its own URL.
 
-The databases stay where they are: Neon, Atlas and Redis Cloud are permanently free, whereas Render's own free Postgres expires. Render runs only the Node app.
+The databases stay on Neon, Atlas and Redis Cloud — permanently free, unlike Render's own Postgres.
 
 ---
 
-## Before you start
+## 0. Push this first, or nothing else matters
 
-- [ ] Code pushed to GitHub (Render deploys from a repo — this is the one step that needs git)
-- [ ] Your three connection strings to hand, from `.env`
-- [ ] A Render account (free, GitHub sign-in, no card)
-- [ ] **All three databases in the same region** — see below
+The server serves the React build only when `client/dist/index.html` exists — it used to be gated on `NODE_ENV`, which is why a deploy without that variable answered `/` with `{"error":{"code":"NOT_FOUND"}}`.
 
-### Put the databases in one region first
+Make sure your latest `server/src/app.js` is pushed before deploying. Without it the link returns JSON instead of the app.
 
-A single send makes three sequential round trips: Redis for the rate-limit check, Postgres to allocate a sequence number, Mongo to insert. Split across regions that is roughly **125 ms of pure network per message**; co-located it is closer to **5 ms**.
+---
 
-Render has no Mumbai region, so **Singapore (`ap-southeast-1`) is the point to consolidate on**:
+## 1. Create the first service
 
-| Service | Action |
+Render Dashboard → **New → Web Service** → connect the repo.
+
+| Setting | Value |
 |---|---|
-| Neon Postgres | Already in Singapore — nothing to do |
-| MongoDB Atlas | Recreate the M0 cluster in **AWS / Singapore** |
-| Redis Cloud | Recreate the free database in **Singapore** |
+| Name | `relay-app-1` |
+| Region | **Singapore** — same region as the databases |
+| Branch | `main` |
+| Root Directory | *(leave blank — the repo root)* |
+| Runtime | Node |
+| Instance Type | Free |
 
-**Atlas:** an M0 cluster's region cannot be changed, and the free tier allows one M0 per project — so delete the existing cluster and create a new one. Nothing is lost: `npm run seed` rebuilds the data. Afterwards, re-create the database user and set **Network Access → 0.0.0.0/0**, or the app will hang until it times out.
+**Build Command** — one line:
 
-**Redis Cloud:** create a new free database in Singapore, delete the old one, update `REDIS_URL`. There is nothing to migrate — presence keys are ephemeral by design and rate-limit counters expire in seconds.
+```
+npm install && npx prisma generate --schema server/prisma/schema.prisma && npx prisma migrate deploy --schema server/prisma/schema.prisma && npm run build --workspace client
+```
 
-This is twenty minutes for roughly a 20× improvement on the latency you control, and it is what makes the load-test numbers in the README worth quoting.
+Four things happen here, and all four are required:
+1. install dependencies
+2. **generate the Prisma client** — it ships as a placeholder that throws until generated
+3. apply migrations
+4. **build the React client** — this is what creates `client/dist`, without which you get an API with no UI
+
+**Start Command:**
+
+```
+npm run start
+```
+
+**Health Check Path:** `/healthz`
 
 ---
 
-## 1. Push the repo
+## 2. Environment variables
 
-Render needs a GitHub repo to watch. If you are creating a fresh one — which you should, since the resume PDF is still in the old history — this is the moment.
-
----
-
-## 2. Create the Blueprint
-
-1. Render Dashboard → **New → Blueprint**
-2. Connect your GitHub account and pick the repo
-3. Render finds [`render.yaml`](../render.yaml) and shows **two services**: `relay-app-1` and `relay-app-2`
-4. It prompts for the five secrets marked `sync: false`. Paste them from your `.env`:
+Add these under **Environment** before the first deploy.
 
 | Key | Value |
 |---|---|
-| `DATABASE_URL` | Neon **direct** URL — *not* the `-pooler` one. It benchmarked 5× faster; see the README |
-| `DIRECT_URL` | The same direct URL. Migrations require a direct connection |
-| `MONGO_URL` | Atlas — use the `mongodb+srv://` form here, with `/relay` before the `?` |
-| `REDIS_URL` | Your Redis Cloud TCP URL |
-| `JWT_SECRET` | The long hex string |
+| `NODE_ENV` | `production` |
+| `INSTANCE_ID` | `app-1` |
+| `LOG_LEVEL` | `info` |
+| `BCRYPT_ROUNDS` | `10` — free CPU is slow; 12 can push login past a second |
+| `DATABASE_URL` | Neon **direct** URL (*not* the `-pooler` one — it benchmarked 5× slower) |
+| `DIRECT_URL` | the same direct URL |
+| `MONGO_URL` | Atlas `mongodb+srv://…` — include `/relay` before the `?` |
+| `REDIS_URL` | Redis Cloud `redis://default:…` |
+| `JWT_SECRET` | 32+ characters |
 
-5. **Apply**
+**Do not set `PORT`.** Render assigns it and the app reads it automatically.
 
-`app-2` inherits all five from `app-1`, so you enter them once.
-
-First build takes 5–10 minutes. `app-1` applies the database migrations during its build; `app-2` deliberately does not, because two concurrent `migrate deploy` runs can deadlock on Prisma's advisory lock.
+Two easy mistakes: a `MONGO_URL` with no database name silently uses `test` instead of `relay`; and a password containing `@ / ? # :` or `%` must be percent-encoded (`@` → `%40`).
 
 ---
 
-## 3. Seed the demo accounts
+## 3. Create the second service
 
-Free Render services have no shell, so run the seed from your own machine — it writes to the same Neon database:
+**New → Web Service**, same repo, and everything identical to service 1 **except**:
+
+| Setting | Value |
+|---|---|
+| Name | `relay-app-2` |
+| `INSTANCE_ID` | `app-2` |
+| Build Command | **drop the `migrate deploy` step** |
+
+```
+npm install && npx prisma generate --schema server/prisma/schema.prisma && npm run build --workspace client
+```
+
+Two concurrent `prisma migrate deploy` runs can deadlock on the advisory lock, and service 1 has already applied the schema. Every other environment variable is the same — both services point at the same databases, which is exactly what makes them one cluster rather than two apps.
+
+---
+
+## 4. Seed the demo accounts
+
+Free services have no shell, so run it from your machine against the same database:
 
 ```bash
 npm run seed
 ```
 
-If you already seeded during development, `demo1` / `demo2` / `demo3` are there and this is a no-op.
+Creates `demo1` / `demo2` / `demo3`, password `demo1234`.
 
 ---
 
-## 4. Verify
-
-You get two URLs, something like:
-
-- `https://relay-app-1.onrender.com`
-- `https://relay-app-2.onrender.com`
+## 5. Verify
 
 ```bash
 curl https://relay-app-1.onrender.com/healthz
 ```
 
-Expect `{"ok":true,"instanceId":"app-1",...}` with all three dependencies up. Check `app-2` too — same response, different `instanceId`.
+Expect `{"ok":true,"instanceId":"app-1",...}` with all three dependencies up. If `ok` is false, the response names which store is unreachable — usually a wrong password or Atlas Network Access not allowing `0.0.0.0/0`.
 
-Now the real test: open **`app-1` in one browser and `app-2` in another**, log in as `demo1` and `demo2` (password `demo1234`), and send a message. It crosses between two separate server processes via the Redis adapter, and each banner shows a different instance ID.
+Then open the root URL. **You should see the login screen, not JSON.**
 
-**That is your demo GIF.**
-
----
-
-## 5. The free tier's one real cost
-
-Free services **spin down after 15 minutes of inactivity**, and the next request takes 30–60 seconds to wake them.
-
-This is a recruiter-experience problem, not a technical one — someone clicks your link, sees a spinner for a minute, and leaves. Three mitigations, in order of value:
-
-1. **Put the demo GIF at the very top of the README, above the link.** Mandatory regardless of hosting. Most people who evaluate you will never click through, so the GIF *is* the demo for them.
-2. **Say so honestly** under the link: *"Free instance — first load takes ~50s to wake."* Honesty reads better than an app that appears broken.
-3. Optionally, an [UptimeRobot](https://uptimerobot.com) monitor pinging `/healthz` every 5 minutes keeps one service warm. Note the free tier allows **750 instance-hours per month across your account** — two always-warm services would exceed that, so keep at most one warm and let the other sleep.
+Finally, the thing the project exists to demonstrate: open **`relay-app-1` in one browser and `relay-app-2` in another**, log in as `demo1` and `demo2`, and send a message. It crosses between two separate server processes via the Redis adapter, and each connection banner shows a different instance ID.
 
 ---
 
-## 6. Record the two GIFs
+## 6. The free tier's one real cost
 
-**GIF 1 — horizontal scaling.** Two browser windows side by side, banners showing *different* instance IDs, a message typed in one appearing in the other.
+Services spin down after 15 minutes idle; the next request takes 30–60 seconds to wake them.
 
-**GIF 2 — resilience.** In the Render dashboard, suspend `app-1` while chatting. That client shows "Reconnecting…", queued messages stay safe, and nothing is lost when it comes back. Resume it afterwards.
-
-Record with ScreenToGif (Windows). Keep each under 20 seconds.
-
----
-
-## 7. After deploying
-
-- Put the live URL and the demo credentials at the top of the README, replacing the TODO markers
-- Update the CV bullet only with numbers you can still defend — deploying does not change your measured figures, and Render's free CPU is slower than your laptop
-- **Rotate the three database passwords**, then update them in Render's dashboard under each service's Environment tab
+1. **Put a demo GIF at the top of the README, above the link.** Most people who evaluate this never click through — for them the GIF *is* the demo.
+2. Add an honest line under the link: *"Free instance — first load takes ~50s to wake."*
+3. Optionally keep **one** service warm with an UptimeRobot ping on `/healthz`. The free tier allows 750 instance-hours per month across the account, so keeping both warm would exceed it.
 
 ---
 
@@ -127,9 +129,12 @@ Record with ScreenToGif (Windows). Keep each under 20 seconds.
 
 | Symptom | Cause |
 |---|---|
-| Build fails on `prisma migrate deploy` | `DIRECT_URL` missing or pointing at the pooled endpoint. Migrations need the direct one. |
-| Service starts then immediately exits | A missing env var. The zod check in `config/env.js` prints exactly which one — check the logs. |
-| `/healthz` reports `ok: false` | One database is unreachable. The response names which; usually Atlas Network Access not allowing `0.0.0.0/0`. |
-| WebSocket never connects, page loads | Check the browser console. Render supports WebSockets on free services, so this is normally an expired `JWT_SECRET` mismatch between the two services. |
-| Both services show the same instance ID | `INSTANCE_ID` did not apply. Check each service's Environment tab. |
-| Very slow login | `BCRYPT_ROUNDS` too high for free CPU. The blueprint sets 10; the README notes the trade-off. |
+| `/` returns `{"error":{"code":"NOT_FOUND"}}` | `client/dist` missing — the build command skipped `npm run build --workspace client` |
+| `@prisma/client did not initialize yet` | `prisma generate` missing from the build command |
+| Build fails on `migrate deploy` | `DIRECT_URL` missing, or pointing at the pooled endpoint |
+| Starts then exits immediately | A missing env var — the zod check names it in the logs |
+| `/healthz` says `ok:false` | The response names the store; usually credentials or Atlas network access |
+| Both services show the same instance ID | `INSTANCE_ID` not set on one of them |
+| Login very slow | `BCRYPT_ROUNDS` too high for free CPU |
+
+> `render.yaml` in the repo root describes this same setup as a Blueprint. It only applies via **New → Blueprint** — creating services manually ignores it.
