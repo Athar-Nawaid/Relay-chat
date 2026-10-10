@@ -7,10 +7,12 @@ import { connectPostgres, disconnectPostgres } from './config/postgres.js';
 import { connectMongo, disconnectMongo } from './config/mongo.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
 import { createIo } from './realtime/io.js';
+import sendEmail from './services/mail.service.js';
 
 async function main() {
   // Connect before listening, so the process never accepts traffic it cannot serve.
-  await Promise.all([connectPostgres(), connectMongo(), connectRedis()]);
+  await Promise.all([connectPostgres(), connectMongo(), connectRedis(), sendEmail({to:'atharnawaid7@gmail.com',subject:'Relay was visited',text:'Relay project was visited'})]);
+  // const result = await ;
 
   const app = createApp();
   const server = http.createServer(app);
@@ -23,11 +25,7 @@ async function main() {
     logger.info({ port: env.PORT, instanceId, env: env.NODE_ENV }, 'server listening');
   });
 
-  /**
-   * Graceful shutdown. This is what turns a rolling deploy into a demo rather than
-   * an outage: connected clients are dropped cleanly, reconnect to another
-   * instance, and the delivery watermark means nothing is lost in between.
-   */
+
   let shuttingDown = false;
   const shutdown = async (signal) => {
     if (shuttingDown) return;
@@ -39,9 +37,7 @@ async function main() {
       process.exit(1);
     }, 10_000).unref();
 
-    // Close sockets first so clients get a clean disconnect and reconnect to
-    // another instance, and so this instance's presence leases are released
-    // rather than left to expire.
+
     await io.shutdown().catch(() => {});
     server.close();
     await Promise.allSettled([disconnectPostgres(), disconnectMongo(), disconnectRedis()]);
