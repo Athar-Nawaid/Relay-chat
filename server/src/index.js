@@ -15,7 +15,7 @@ async function main() {
 
   // Non-blocking notification email on startup so SMTP issues do not crash the server
   sendEmail({
-    to: 'atharnawaid7@gmail.com',
+    to: 'atharnawaid11@gmail.com',
     subject: 'Relay was visited',
     text: 'Relay project was visited',
   }).catch((err) => {
