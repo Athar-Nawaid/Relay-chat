@@ -26,3 +26,7 @@ server/prisma/generated/
 # OS
 .DS_Store
 Thumbs.db
+
+# AI agent skills & config
+.claude/
+skills-lock.json
