@@ -11,8 +11,16 @@ import sendEmail from './services/mail.service.js';
 
 async function main() {
   // Connect before listening, so the process never accepts traffic it cannot serve.
-  await Promise.all([connectPostgres(), connectMongo(), connectRedis(), sendEmail({to:'atharnawaid7@gmail.com',subject:'Relay was visited',text:'Relay project was visited'})]);
-  // const result = await ;
+  await Promise.all([connectPostgres(), connectMongo(), connectRedis()]);
+
+  // Non-blocking notification email on startup so SMTP issues do not crash the server
+  sendEmail({
+    to: 'atharnawaid7@gmail.com',
+    subject: 'Relay was visited',
+    text: 'Relay project was visited',
+  }).catch((err) => {
+    logger.warn({ err }, 'Failed to send visit notification email');
+  });
 
   const app = createApp();
   const server = http.createServer(app);

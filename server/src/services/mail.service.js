@@ -16,7 +16,12 @@ const transporter = nodemailer.createTransport({
 });
 
 export default async function sendEmail({ to, subject, text }) {
-    console.log(to);
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    // eslint-disable-next-line no-console
+    console.warn('[mail.service] SMTP_USER or SMTP_PASS not set; skipping email.');
+    return { skipped: true };
+  }
+
   const info = await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
